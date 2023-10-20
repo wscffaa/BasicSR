@@ -40,8 +40,8 @@ phase: train
     # check shape and contents
     assert result['gt'].shape == (3, 128, 128)
     assert result['lq'].shape == (3, 32, 32)
-    assert result['lq_path'] == 'tests/data/lq/baboon.png'
-    assert result['gt_path'] == 'tests/data/gt/baboon.png'
+    assert result['lq_path'] == 'tests/data/lq/people.png'
+    assert result['gt_path'] == 'tests/data/gt/people.png'
 
     # ------------------ test filename_tmpl -------------------- #
     opt.pop('filename_tmpl')
@@ -77,8 +77,8 @@ phase: train
     # check shape and contents
     assert result['gt'].shape == (1, 128, 128)
     assert result['lq'].shape == (1, 32, 32)
-    assert result['lq_path'] == 'comic'
-    assert result['gt_path'] == 'comic'
+    assert result['lq_path'] == 'scence'
+    assert result['gt_path'] == 'scence'
 
     # ------------------ test case: val/test mode -------------------- #
     opt['phase'] = 'test'
@@ -93,5 +93,8 @@ phase: train
     # check shape and contents
     assert result['gt'].shape == (1, 480, 492)
     assert result['lq'].shape == (1, 120, 123)
-    assert result['lq_path'] == 'baboon'
-    assert result['gt_path'] == 'baboon'
+    assert result['lq_path'] == 'people'
+    assert result['gt_path'] == 'people'
+
+if __name__ == '__main__':
+    test_pairedimagedataset()

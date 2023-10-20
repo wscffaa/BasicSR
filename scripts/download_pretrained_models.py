@@ -30,6 +30,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         'method',
+        default='all',
         type=str,
         help=("Options: 'ESRGAN', 'EDVR', 'StyleGAN', 'EDSR', 'DUF', 'DFDNet', 'dlib', 'TOF', 'flownet', 'BasicVSR'. "
               "Set to 'all' to download all the models."))

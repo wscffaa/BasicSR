@@ -1,2 +1,2 @@
-gt/baboon.png, lq/baboon.png
-gt/comic.png, lq/comic.png
+gt/people.png, lq/people.png
+gt/scence.png, lq/scence.png
