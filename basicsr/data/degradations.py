@@ -1,8 +1,10 @@
 import cv2
+import os
 import math
 import numpy as np
 import random
 import torch
+from torchvision.utils import save_image
 from scipy import special
 from scipy.stats import multivariate_normal
 from torchvision.transforms.functional_tensor import rgb_to_grayscale
@@ -723,6 +725,182 @@ def random_add_poisson_noise_pt(img, scale_range=(0, 1.0), gray_prob=0, clip=Tru
     return out
 
 
+# ----------------------------Salt-and—Pepper Noise--------------------------- #
+def generate_pepper_salt_noise(img, sigma=10, gray_noise=False):
+    """Generate Salt-and—Pepper noise.
+
+    Reference: https://github.com/SvainZhu/Image-Noise-Estimation/blob/master/noise-estimation/pepper-salt%20noise%20estimation.py
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        sigma (float): Noise scale (measured in range 255). Default: 10.
+
+    Returns:
+        pepper_salt_noise (Numpy array): Returned noisy image, shape (h, w, c), range[0, 1],
+            float32.
+    """
+    if gray_noise:
+        salt_noise = np.random.randint(0, 256, img.shape[0:2])
+        salt_noise = np.where(salt_noise < ((sigma / 2000.0) * 256), 255, 0)
+        salt_noise = salt_noise.astype(np.float32)
+
+        pepper_noise = np.random.randint(0, 256, img.shape[0:2])
+        pepper_noise = np.where(pepper_noise < ((sigma / 2000.0) * 256), -255, 0)
+        pepper_noise = pepper_noise.astype(np.float32)
+
+        noise = salt_noise + pepper_noise
+        noise = np.expand_dims(noise, axis=2).repeat(3, axis=2)
+    else:
+        salt_noise = np.random.randint(0, 256, img.shape)
+        salt_noise = np.where(salt_noise < ((sigma / 2000) * 256), 255, 0)
+        salt_noise = salt_noise.astype(np.float32)
+
+        pepper_noise = np.random.randint(0, 256, img.shape)
+        pepper_noise = np.where(pepper_noise < ((sigma / 2000) * 256), -255, 0)
+        pepper_noise = pepper_noise.astype(np.float32)
+
+        noise = salt_noise + pepper_noise
+    return noise
+
+
+def add_pepper_salt_noise(img, sigma=10, clip=True, rounds=False, gray_noise=False):
+    """Add pepper_salt noise.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        sigma (float): Noise scale (measured in range 255). Default: 10.
+
+    Returns:
+        (Numpy array): Returned noisy image, shape (h, w, c), range[0, 1],
+            float32.
+    """
+    noise = generate_pepper_salt_noise(img, sigma, gray_noise)
+    out = img + noise
+    if clip and rounds:
+        out = np.clip((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = np.clip(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+def generate_pepper_salt_noise_pt(img, sigma=10, gray_noise=0):
+    """Add pepper_salt noise (PyTorch version).
+
+    Args:
+        img (Tensor): Shape (b, c, h, w), range[0, 1], float32.
+        sigma (float | Tensor): Noise scale. Default: 10.
+        gray_noise (float | Tensor): whether gray noise. Default: 0.
+
+    Returns:
+        noise (Tensor): Returned noisy image, shape (b, c, h, w), range[0, 1],
+            float32.
+    """
+    b, c, h, w = img.size()
+    if not isinstance(sigma, (float, int)):
+        sigma = sigma.view(b, 1, 1, 1)
+
+    # Generate salt and pepper noise
+    salt_and_pepper = torch.rand_like(img)
+    salt_and_pepper = torch.where(salt_and_pepper < sigma / 255., 1., 0.)
+
+    # Add the salt and pepper noise to the original image
+    img_noisy = img.clone()
+    img_noisy += salt_and_pepper
+
+    # Clip values to the valid range [0, 1]
+    img_noisy = torch.clamp(img_noisy, 0., 1.)
+
+    return img_noisy
+
+
+def add_pepper_salt_noise_pt(img, sigma=10, gray_noise=0, clip=True, rounds=False):
+    """Add pepper_salt noise (PyTorch version).
+
+    Args:
+        img (Tensor): Shape (b, c, h, w), range[0, 1], float32.
+        scale (float | Tensor): Noise scale. Default: 1.0.
+
+    Returns:
+        (Tensor): Returned noisy image, shape (b, c, h, w), range[0, 1],
+            float32.
+    """
+    img_noisy = generate_pepper_salt_noise_pt(img, sigma, gray_noise)
+    out = img_noisy
+    if clip and rounds:
+        out = torch.clamp((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = torch.clamp(out, 0., 1.)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+# ----------------------- Random Salt-and—Pepper Noise ----------------------- #
+def random_generate_salt_and_pepper_noise(img, sigma_range=(0, 10), gray_prob=0):
+    sigma = np.random.uniform(sigma_range[0], sigma_range[1])
+    if np.random.uniform() < gray_prob:
+        gray_noise = True
+    else:
+        gray_noise = False
+    return generate_pepper_salt_noise(img, sigma, gray_noise)
+
+
+def random_add_salt_and_pepper_noise(img, sigma_range=(0, 1.0), gray_prob=0, clip=True, rounds=False):
+    noise = random_generate_salt_and_pepper_noise(img, sigma_range, gray_prob)
+    out = noise + img
+    if clip and rounds:
+        out = np.clip((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = np.clip(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+def random_generate_salt_and_pepper_noise_pt(img, sigma_range=(0, 10), gray_prob=0):
+    sigma = torch.rand(
+        img.size(0), dtype=img.dtype, device=img.device) * (sigma_range[1] - sigma_range[0]) + sigma_range[0]
+    gray_noise = torch.rand(img.size(0), dtype=img.dtype, device=img.device)
+    gray_noise = (gray_noise < gray_prob).float()
+    return generate_pepper_salt_noise_pt(img, sigma, gray_noise)
+
+
+def random_add_salt_and_pepper_noise_pt(img, sigma_range=(0, 1.0), gray_prob=0, clip=True, rounds=False):
+    noise_img = random_generate_salt_and_pepper_noise_pt(img, sigma_range, gray_prob)
+    out = noise_img
+    if clip and rounds:
+        out = torch.clamp((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = torch.clamp(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+# --------------------------------Impulse Noise------------------------------- #
+def generate_impulse_noise(img, num_impulses=100, gray_noise=False):
+    """Generate Impulse noise.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        num_impulses (float): number of impulse noise. Default: 100.
+        gray_noise (bool): Whether generate gray noise. Default: False.
+
+    Returns:
+        noise (Numpy array): Returned noisy image, shape (h, w, c), range[0, 1],
+            float32.
+    """
+    if gray_noise:
+        noise = np.float32(np.random.randn(*(img.shape[0:2]))) * sigma / 255.
+        noise = np.expand_dims(noise, axis=2).repeat(3, axis=2)
+    else:
+        noise = np.float32(np.random.randn(*(img.shape))) * sigma / 255.
+    return noise
+
+
+# --------------------------------Speckle Noise------------------------------- #
+
+
 # ------------------------------------------------------------------------ #
 # --------------------------- JPEG compression --------------------------- #
 # ------------------------------------------------------------------------ #
@@ -762,3 +940,187 @@ def random_add_jpg_compression(img, quality_range=(90, 100)):
     """
     quality = np.random.uniform(quality_range[0], quality_range[1])
     return add_jpg_compression(img, quality)
+
+# ---------------------------------------------------------------------------- #
+#                                 Test Function                                #
+# ---------------------------------------------------------------------------- #
+
+def test_numpy_array(function, gray_noise):
+    img = cv2.imread('tests/data/gt/people.png')
+    if gray_noise:
+        img = img.astype(np.float32)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 转换为灰度图
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # 将灰度图扩展为三通道图
+    img = img / 255.0
+    # 初始化一个空列表来存储所有的噪声图像
+    noisy_imgs = []
+    if function.__name__ == 'add_poisson_noise':
+        for i in np.arange(0, 1, 0.1):
+            scale = i
+            noisy_img = function(img, scale=scale, clip=True, rounds=False, gray_noise=gray_noise)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    else:
+        for i in range(10):
+            sigma = i
+            noisy_img = function(img, sigma=sigma, clip=True, rounds=False, gray_noise=gray_noise)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    # 使用 numpy.hstack 将所有的噪声图像并排排列
+    combined_img = np.hstack(noisy_imgs)
+    # 保存并排的噪声图像
+    save_dir = 'test_dir/test_numpy_array'
+    os.makedirs(save_dir, exist_ok=True)
+    if gray_noise:
+        cv2.imwrite(os.path.join(save_dir, f"{function.__name__}_gray.png"), combined_img)
+        print(f"{function.__name__}_gray is OK")
+    else:
+        cv2.imwrite(os.path.join(save_dir, f"{function.__name__}.png"), combined_img)
+        print(f"{function.__name__} is OK")
+
+
+def test_tensor(function, gray_noise):
+    img = cv2.imread('tests/data/gt/people.png')
+    if gray_noise:
+        img = img.astype(np.float32)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 转换为灰度图
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # 将灰度图扩展为三通道图
+    img = img / 255.0
+    # 将 NumPy 数组转换为 Tensor
+    img_tensor = torch.from_numpy(img)
+    # 将维度从 (h, w, c) 调整为 (c, h, w)
+    img_tensor = img_tensor.permute(2, 0, 1)
+    # 添加一个新的批量维度
+    img_tensor = img_tensor.unsqueeze(0)
+    # 初始化一个空列表来存储所有的噪声图像
+    noisy_imgs = []
+    if function.__name__ == 'add_poisson_noise_pt':
+        for i in np.arange(0, 1, 0.1):
+            scale = i
+            noisy_img = function(img_tensor, scale=scale, clip=True, rounds=False, gray_noise=gray_noise)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    else:
+        for i in range(10):
+            sigma = i
+            noisy_img = function(img_tensor, sigma=sigma, clip=True, rounds=False, gray_noise=gray_noise)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    # 使用 torch.cat 将所有的噪声图像并排排列
+    combined_img = torch.cat(noisy_imgs, dim=-1)
+    # 保存并排的噪声图像
+    save_dir = 'test_dir/test_tensor'
+    os.makedirs(save_dir, exist_ok=True)
+    if gray_noise:
+        save_image(combined_img, os.path.join(save_dir, f"{function.__name__}_gray.png"))
+        print(f"{function.__name__}_gray is OK")
+    else:
+        save_image(combined_img, os.path.join(save_dir, f"{function.__name__}.png"))
+        print(f"{function.__name__} is OK")
+
+
+def test_random_numpy(function, gray_prob):
+    img = cv2.imread('tests/data/gt/people.png')
+    if gray_prob:
+        img = img.astype(np.float32)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 转换为灰度图
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # 将灰度图扩展为三通道图
+    img = img / 255.0
+    # 初始化一个空列表来存储所有的噪声图像
+    noisy_imgs = []
+    if 'poisson' in function.__name__:
+        for i in range(10):
+            noisy_img = function(img, scale_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    else:
+        for i in range(10):
+            noisy_img = function(img, sigma_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    # 使用 numpy.hstack 将所有的噪声图像并排排列
+    combined_img = np.hstack(noisy_imgs)
+    # 保存并排的噪声图像
+    save_dir = 'test_dir/test_random_numpy'
+    os.makedirs(save_dir, exist_ok=True)
+    if gray_prob:
+        cv2.imwrite(os.path.join(save_dir, f"{function.__name__}_gray.png"), combined_img)
+        print(f"{function.__name__}_gray is OK")
+    else:
+        cv2.imwrite(os.path.join(save_dir, f"{function.__name__}.png"), combined_img)
+        print(f"{function.__name__} is OK")
+
+def test_random_tensor(function, gray_noise):
+    img = cv2.imread('tests/data/gt/people.png')
+    if gray_noise:
+        img = img.astype(np.float32)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 转换为灰度图
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # 将灰度图扩展为三通道图
+    img = img / 255.0
+    # 将 NumPy 数组转换为 Tensor
+    img_tensor = torch.from_numpy(img)
+    # 将维度从 (h, w, c) 调整为 (c, h, w)
+    img_tensor = img_tensor.permute(2, 0, 1)
+    # 添加一个新的批量维度
+    img_tensor = img_tensor.unsqueeze(0)
+    # 初始化一个空列表来存储所有的噪声图像
+    noisy_imgs = []
+    if 'poisson' in function.__name__:
+        for i in range(10):
+            noisy_img = function(img_tensor, scale_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    else:
+        for i in range(10):
+            noisy_img = function(img_tensor, sigma_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    # 使用 torch.cat 将所有的噪声图像并排排列
+    combined_img = torch.cat(noisy_imgs, dim=-1)
+    # 保存并排的噪声图像
+    save_dir = 'test_dir/test_random_tensor'
+    os.makedirs(save_dir, exist_ok=True)
+    if gray_noise:
+        save_image(combined_img, os.path.join(save_dir, f"{function.__name__}_gray.png"))
+        print(f"{function.__name__}_gray is OK")
+    else:
+        save_image(combined_img, os.path.join(save_dir, f"{function.__name__}.png"))
+        print(f"{function.__name__} is OK")
+
+
+if __name__ == "__main__":
+    # salt_and_papper noise Numpy array is OK
+    test_numpy_array(add_gaussian_noise, gray_noise=False)
+    test_numpy_array(add_gaussian_noise, gray_noise=True)
+    test_numpy_array(add_pepper_salt_noise, gray_noise=False)
+    test_numpy_array(add_pepper_salt_noise, gray_noise=True)
+    test_numpy_array(add_poisson_noise, gray_noise=False)
+    test_numpy_array(add_poisson_noise, gray_noise=True)
+
+    # TODO: when we use tensor, ouput_img color is different from numpy array
+    test_tensor(add_gaussian_noise_pt, gray_noise=False)
+    test_tensor(add_gaussian_noise_pt, gray_noise=True)
+    test_tensor(add_poisson_noise_pt, gray_noise=False)
+    test_tensor(add_poisson_noise_pt, gray_noise=True)
+    test_tensor(add_pepper_salt_noise_pt, gray_noise=False)
+    test_tensor(add_pepper_salt_noise_pt, gray_noise=True)
+
+
+    # Test Random generate noise
+    test_random_numpy(random_add_gaussian_noise, gray_prob=0)
+    test_random_numpy(random_add_gaussian_noise, gray_prob=1)
+    test_random_numpy(random_add_poisson_noise, gray_prob=0)
+    test_random_numpy(random_add_poisson_noise, gray_prob=1)
+    test_random_numpy(random_add_salt_and_pepper_noise, gray_prob=0)
+    test_random_numpy(random_add_salt_and_pepper_noise, gray_prob=1)
+
+    test_random_tensor(random_add_gaussian_noise_pt, gray_noise=0)
+    test_random_tensor(random_add_gaussian_noise_pt, gray_noise=1)
+    test_random_tensor(random_add_poisson_noise_pt, gray_noise=0)
+    test_random_tensor(random_add_poisson_noise_pt, gray_noise=1)
+    test_random_tensor(random_add_salt_and_pepper_noise_pt, gray_noise=0)
+    test_random_tensor(random_add_salt_and_pepper_noise_pt, gray_noise=1)

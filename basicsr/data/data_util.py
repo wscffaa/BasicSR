@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import torch
+import os
+import unittest
 from os import path as osp
 from torch.nn import functional as F
 
@@ -313,3 +315,62 @@ def duf_downsample(x, kernel_size=13, scale=4):
     if squeeze_flag:
         x = x.squeeze(0)
     return x
+
+
+# ---------------------------------------------------------------------------- #
+#                             For Film degradation                             #
+# ---------------------------------------------------------------------------- #
+
+
+def get_file_list_new(path):
+    """Get file list from path.
+
+    Args:
+        path (str): Path to the file list.
+
+    Returns:
+        list[str]: File list.
+    """
+    file_paths = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        for filename in filenames:
+            file_paths.append(os.path.join(dirpath, filename))
+            # 无序更能保证模拟电影退化的随机性
+            # file_paths.sort()
+    return file_paths
+
+
+def get_file_list_old(path):
+    """Get file list from path.
+
+    Args:
+        path (str): Path to the file list.
+
+    Returns:
+        list[str]: File list.
+    """
+    file_paths = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        for filename in filenames:
+            t = "%s/%s" % (dirpath, filename)
+            file_paths.append(t)
+            # file_paths.sort()
+    return file_paths
+
+def test_function(function):
+    test_path = 'datasets/noise_data'
+    file_paths = function(test_path)
+
+    # 打印文件路径的总长度
+    print(f'Total number of files: {len(file_paths)}')
+
+    # 将文件列表保存到一个新的txt文件中
+    with open(f'test_dir/{function.__name__}.txt', 'w') as f:
+        for file in file_paths:
+            f.write(file + '\n')
+
+    print(f'File paths have been written to {function.__name__}.txt')
+
+if __name__ == "__main__":
+    test_function(get_file_list_old)
+    test_function(get_file_list_new)

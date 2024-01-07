@@ -211,5 +211,6 @@ def train_pipeline(root_path):
 
 
 if __name__ == '__main__':
+    # 最终，root_path变量将包含当前脚本文件所在目录的父目录的父目录的绝对路径
     root_path = osp.abspath(osp.join(__file__, osp.pardir, osp.pardir))
     train_pipeline(root_path)
