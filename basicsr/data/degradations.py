@@ -729,7 +729,7 @@ def random_add_poisson_noise_pt(img, scale_range=(0, 1.0), gray_prob=0, clip=Tru
 def generate_pepper_salt_noise(img, sigma=10, gray_noise=False):
     """Generate Salt-and—Pepper noise.
 
-    Reference: https://github.com/SvainZhu/Image-Noise-Estimation/blob/master/noise-estimation/pepper-salt%20noise%20estimation.py
+
     Args:
         img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
         sigma (float): Noise scale (measured in range 255). Default: 10.
@@ -835,6 +835,7 @@ def add_pepper_salt_noise_pt(img, sigma=10, gray_noise=0, clip=True, rounds=Fals
         out = (out * 255.0).round() / 255.
     return out
 
+
 # ----------------------- Random Salt-and—Pepper Noise ----------------------- #
 def random_generate_salt_and_pepper_noise(img, sigma_range=(0, 10), gray_prob=0):
     sigma = np.random.uniform(sigma_range[0], sigma_range[1])
@@ -878,28 +879,319 @@ def random_add_salt_and_pepper_noise_pt(img, sigma_range=(0, 1.0), gray_prob=0, 
 
 
 # --------------------------------Impulse Noise------------------------------- #
-def generate_impulse_noise(img, num_impulses=100, gray_noise=False):
-    """Generate Impulse noise.
+def generate_impulse_noise(img, p=0.05, gray_noise=False):
+    """
+    Generate impulse noise.
 
     Args:
         img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
-        num_impulses (float): number of impulse noise. Default: 100.
-        gray_noise (bool): Whether generate gray noise. Default: False.
+        p (float): Probability of changing a pixel to black or white. Default: 0.05.
+        gray_noise (bool): If true, apply noise only to one channel and replicate to others.
 
     Returns:
-        noise (Numpy array): Returned noisy image, shape (h, w, c), range[0, 1],
-            float32.
+        (Numpy array): Impulse noise, shape (h, w, c), range [0, 1], float32.
     """
+    h, w, c = img.shape
+    # Generate noise
+    noise = np.random.choice([0, 1, 0.5], size=(h, w, 1 if gray_noise else c), p=[p/2, p/2, 1-p])
     if gray_noise:
-        noise = np.float32(np.random.randn(*(img.shape[0:2]))) * sigma / 255.
-        noise = np.expand_dims(noise, axis=2).repeat(3, axis=2)
+        noise = np.repeat(noise, c, axis=2)
+    return noise.astype(np.float32)
+
+
+def add_impulse_noise(img, p=0.05, clip=True, rounds=False, gray_noise=False):
+    """
+    Add impulse noise to an image.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        p (float): Probability of changing a pixel to black or white. Default: 0.05.
+        clip (bool): If true, clip the output values to the image range.
+        rounds (bool): If true, round the output values to nearest integer.
+        gray_noise (bool): If true, apply noise only to one channel and replicate to others.
+
+    Returns:
+        (Numpy array): Noisy image, shape (h, w, c), range [0, 1], float32.
+    """
+    noise = generate_impulse_noise(img, p, gray_noise)
+    out = img + noise
+    out = np.where(noise == 0.5, img, out)  # Apply noise only where it's not 0.5 (no change)
+    if clip and rounds:
+        out = np.clip((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = np.clip(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+def generate_impulse_noise_pt(img, p=0.05, gray_noise=0):
+    """
+    Generate impulse noise (PyTorch version).
+
+    Args:
+        img (Tensor): Input image, shape (b, c, h, w), range[0, 1], float32.
+        p (float): Probability of changing a pixel to black or white. Default: 0.05.
+        gray_noise (int | Tensor): If non-zero, apply noise only to one channel and replicate to others.
+
+    Returns:
+        (Tensor): Impulse noise, shape (b, c, h, w), range [0, 1], float32.
+    """
+    b, c, h, w = img.size()
+    device = img.device
+
+    # Create noise pattern
+    if gray_noise:
+        noise_pattern = torch.rand((b, 1, h, w), dtype=torch.float32, device=device)
+        noise = torch.where(noise_pattern < p/2, torch.zeros_like(noise_pattern),
+                            torch.where(noise_pattern < p, torch.ones_like(noise_pattern), torch.full_like(noise_pattern, 0.5)))
+        noise = noise.repeat(1, c, 1, 1)  # Repeat noise across channels
     else:
-        noise = np.float32(np.random.randn(*(img.shape))) * sigma / 255.
+        noise_pattern = torch.rand((b, c, h, w), dtype=torch.float32, device=device)
+        noise = torch.where(noise_pattern < p/2, torch.zeros_like(noise_pattern),
+                            torch.where(noise_pattern < p, torch.ones_like(noise_pattern), torch.full_like(noise_pattern, 0.5)))
+
     return noise
 
 
-# --------------------------------Speckle Noise------------------------------- #
+def add_impulse_noise_pt(img, p=0.05, gray_noise=0, clip=True, rounds=False):
+    """
+    Add impulse noise to an image (PyTorch version).
 
+    Args:
+        img (Tensor): Input image, shape (b, c, h, w), range[0, 1], float32.
+        p (float): Probability of changing a pixel to black or white. Default: 0.05.
+        gray_noise (int | Tensor): If non-zero, apply noise only to one channel and replicate to others.
+        clip (bool): If true, clip the output values to the image range.
+        rounds (bool): If true, round the output values to nearest integer.
+
+    Returns:
+        (Tensor): Noisy image, shape (b, c, h, w), range [0, 1], float32.
+    """
+    noise = generate_impulse_noise_pt(img, p, gray_noise)
+    out = torch.where(noise != 0.5, noise, img)
+
+    if clip and rounds:
+        out = torch.clamp((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = torch.clamp(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+
+    return out
+
+
+# ----------------------- Random Impulse Noise ----------------------- #
+def random_generate_impulse_noise(img, prob_range=(0.01, 0.1), gray_prob=0):
+    p = np.random.uniform(prob_range[0], prob_range[1])
+    gray_noise = np.random.uniform() < gray_prob
+    return generate_impulse_noise(img, p, gray_noise)
+
+
+def random_add_impulse_noise(img, prob_range=(0.01, 0.1), gray_prob=0, clip=True, rounds=False):
+    noise = random_generate_impulse_noise(img, prob_range, gray_prob)
+    out = img + noise - 0.5  # Subtract 0.5 to toggle between -0.5 and 0.5 for impulse noise effect
+    if clip and rounds:
+        out = np.clip((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = np.clip(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+def random_generate_impulse_noise_pt(img, prob_range=(0.01, 0.1), gray_prob=0):
+    p = torch.rand(1, dtype=img.dtype, device=img.device) * (prob_range[1] - prob_range[0]) + prob_range[0]
+    gray_noise = (torch.rand(1, dtype=img.dtype, device=img.device) < gray_prob).float()
+    return generate_impulse_noise_pt(img, p.item(), gray_noise.item())
+
+
+def random_add_impulse_noise_pt(img, prob_range=(0.01, 0.1), gray_prob=0, clip=True, rounds=False):
+    noise = random_generate_impulse_noise_pt(img, prob_range, gray_prob)
+    out = img + noise - 0.5  # Subtract 0.5 to toggle between -0.5 and 0.5 for impulse noise effect
+    if clip and rounds:
+        out = torch.clamp((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = torch.clamp(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+# --------------------------------Speckle Noise------------------------------- #
+def generate_speckle_noise(img, sigma=0.05, gray_noise=False):
+    """
+    Generate speckle noise.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        sigma (float): Variance of the speckle noise.
+        gray_noise (bool): If true, apply noise only to one channel and replicate to others.
+
+    Returns:
+        (Numpy array): Speckle noise, shape (h, w, c), range [0, 1], float32.
+    """
+    noise = np.random.normal(0, sigma, img.shape[:2] if gray_noise else img.shape)
+    if gray_noise:
+        noise = np.repeat(noise[:, :, np.newaxis], img.shape[2], axis=2)
+    return img * noise
+
+
+def add_speckle_noise(img, sigma=0.05, clip=True, rounds=False, gray_noise=False):
+    """
+    Add speckle noise to an image.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        sigma (float): Variance of the speckle noise.
+        clip (bool): If true, clip the output values to the image range.
+        rounds (bool): If true, round the output values to nearest integer.
+        gray_noise (bool): If true, apply noise only to one channel and replicate to others.
+
+    Returns:
+        (Numpy array): Noisy image, shape (h, w, c), range [0, 1], float32.
+    """
+    noise = generate_speckle_noise(img, sigma, gray_noise)
+    out = img * (1 + noise)
+    if clip and rounds:
+        out = np.clip((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = np.clip(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+
+def generate_speckle_noise_pt(img, sigma=0.05, gray_noise=0):
+    """
+    Generate speckle noise (PyTorch version).
+
+    Args:
+        img (Tensor): Input image, shape (b, c, h, w), range[0, 1], float32.
+        sigma (float): Variance of the speckle noise.
+        gray_noise (int | Tensor): If non-zero, apply noise only to one channel and replicate to others.
+
+    Returns:
+        (Tensor): Speckle noise, shape (b, c, h, w), range [0, 1], float32.
+    """
+    b, c, h, w = img.size()
+    device = img.device
+
+    if gray_noise:
+        noise = torch.normal(0, sigma, size=(b, 1, h, w), device=device)
+        noise = noise.repeat(1, c, 1, 1)
+    else:
+        noise = torch.normal(0, sigma, size=img.size(), device=device)
+
+    return noise
+
+
+def add_speckle_noise_pt(img, sigma=0.05, clip=True, rounds=False, gray_noise=0):
+    """
+    Add speckle noise to an image (PyTorch version).
+
+    Args:
+        img (Tensor): Input image, shape (b, c, h, w), range[0, 1], float32.
+        sigma (float): Variance of the speckle noise.
+        clip (bool): If true, clip the output values to the image range.
+        rounds (bool): If true, round the output values to nearest integer.
+        gray_noise (int | Tensor): If non-zero, apply noise only to one channel and replicate to others.
+
+    Returns:
+        (Tensor): Noisy image, shape (b, c, h, w), range [0, 1], float32.
+    """
+    noise = generate_speckle_noise_pt(img, sigma, gray_noise)
+    out = img * (1 + noise)
+    if clip and rounds:
+        out = torch.clamp((out * 255).round(), 0, 255) / 255
+    elif clip:
+        out = torch.clamp(out, 0, 1)
+    elif rounds:
+        out = (out * 255).round() / 255
+
+    return out
+
+
+# ----------------------- Random Speckle Noise ----------------------- #
+def random_generate_speckle_noise(img, sigma_range=(0.01, 0.1), gray_prob=0):
+    """
+    Generate random speckle noise.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        sigma_range (tuple): Range of noise variance.
+        gray_prob (float): Probability of generating gray noise.
+
+    Returns:
+        Numpy array: Speckle noise, shape (h, w, c), range [0, 1], float32.
+    """
+    sigma = np.random.uniform(sigma_range[0], sigma_range[1])
+    gray_noise = np.random.uniform() < gray_prob
+    return generate_speckle_noise(img, sigma, gray_noise)
+
+def random_add_speckle_noise(img, sigma_range=(0.01, 0.1), gray_prob=0, clip=True, rounds=False):
+    """
+    Add random speckle noise to an image.
+
+    Args:
+        img (Numpy array): Input image, shape (h, w, c), range [0, 1], float32.
+        sigma_range (tuple): Range of noise variance.
+        gray_prob (float): Probability of generating gray noise.
+        clip (bool): If true, clip the output values to the image range.
+        rounds (bool): If true, round the output values to nearest integer.
+
+    Returns:
+        Numpy array: Noisy image, shape (h, w, c), range [0, 1], float32.
+    """
+    noise = random_generate_speckle_noise(img, sigma_range, gray_prob)
+    out = img * (1 + noise)
+    if clip and rounds:
+        out = np.clip((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = np.clip(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
+
+def random_generate_speckle_noise_pt(img, sigma_range=(0.01, 0.1), gray_prob=0):
+    """
+    Generate random speckle noise (PyTorch version).
+
+    Args:
+        img (Tensor): Input image, shape (b, c, h, w), range[0, 1], float32.
+        sigma_range (tuple): Range of noise variance.
+        gray_prob (float): Probability of generating gray noise.
+
+    Returns:
+        Tensor: Speckle noise, shape (b, c, h, w), range [0, 1], float32.
+    """
+    sigma = torch.rand(1, dtype=img.dtype, device=img.device) * (sigma_range[1] - sigma_range[0]) + sigma_range[0]
+    gray_noise = (torch.rand(1, dtype=img.dtype, device=img.device) < gray_prob).float()
+    return generate_speckle_noise_pt(img, sigma.item(), gray_noise.item())
+
+def random_add_speckle_noise_pt(img, sigma_range=(0.01, 0.1), gray_prob=0, clip=True, rounds=False):
+    """
+    Add random speckle noise to an image (PyTorch version).
+
+    Args:
+        img (Tensor): Input image, shape (b, c, h, w), range[0, 1], float32.
+        sigma_range (tuple): Range of noise variance.
+        gray_prob (float): Probability of generating gray noise.
+        clip (bool): If true, clip the output values to the image range.
+        rounds (bool): If true, round the output values to nearest integer.
+
+    Returns:
+        Tensor: Noisy image, shape (b, c, h, w), range [0, 1], float32.
+    """
+    noise = random_generate_speckle_noise_pt(img, sigma_range, gray_prob)
+    out = img * (1 + noise)
+    if clip and rounds:
+        out = torch.clamp((out * 255.0).round(), 0, 255) / 255.
+    elif clip:
+        out = torch.clamp(out, 0, 1)
+    elif rounds:
+        out = (out * 255.0).round() / 255.
+    return out
 
 # ------------------------------------------------------------------------ #
 # --------------------------- JPEG compression --------------------------- #
@@ -945,6 +1237,7 @@ def random_add_jpg_compression(img, quality_range=(90, 100)):
 #                                 Test Function                                #
 # ---------------------------------------------------------------------------- #
 
+
 def test_numpy_array(function, gray_noise):
     img = cv2.imread('tests/data/gt/people.png')
     if gray_noise:
@@ -958,6 +1251,18 @@ def test_numpy_array(function, gray_noise):
         for i in np.arange(0, 1, 0.1):
             scale = i
             noisy_img = function(img, scale=scale, clip=True, rounds=False, gray_noise=gray_noise)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    elif function.__name__ == 'add_impulse_noise':
+        for i in np.arange(0, 0.1, 0.01):
+            p = i
+            noisy_img = function(img, p=p, clip=True, gray_noise=gray_noise)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    elif function.__name__ == 'add_speckle_noise':
+        for i in np.arange(0, 1, 0.1):
+            sigma = i
+            noisy_img = function(img, sigma=sigma, clip=True, gray_noise=gray_noise)
             noisy_img_255 = (noisy_img * 255).astype(np.uint8)
             noisy_imgs.append(noisy_img_255)
     else:
@@ -1001,6 +1306,20 @@ def test_tensor(function, gray_noise):
             # 将通道顺序从 BGR 转换为 RGB
             noisy_img = noisy_img[:, [2, 1, 0], :, :]
             noisy_imgs.append(noisy_img)
+    elif function.__name__ == 'add_impulse_noise_pt':
+        for i in np.arange(0, 0.1, 0.01):
+            p = i
+            noisy_img = function(img_tensor, p=p, clip=True, rounds=False, gray_noise=gray_noise)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    elif function.__name__ == 'add_speckle_noise_pt':
+        for i in np.arange(0, 0.5, 0.1):
+            sigma = i
+            noisy_img = function(img_tensor, sigma=sigma, clip=True, rounds=False, gray_noise=gray_noise)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
     else:
         for i in range(10):
             sigma = i
@@ -1035,6 +1354,16 @@ def test_random_numpy(function, gray_prob):
             noisy_img = function(img, scale_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
             noisy_img_255 = (noisy_img * 255).astype(np.uint8)
             noisy_imgs.append(noisy_img_255)
+    elif 'impulse' in function.__name__:
+        for i in range(10):
+            noisy_img = function(img, prob_range=(0.01, 0.05), gray_prob=0, clip=True, rounds=False)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
+    elif 'speckle' in function.__name__:
+        for i in range(10):
+            noisy_img = function(img, sigma_range=(0.1, 0.5), gray_prob=0, clip=True, rounds=False)
+            noisy_img_255 = (noisy_img * 255).astype(np.uint8)
+            noisy_imgs.append(noisy_img_255)
     else:
         for i in range(10):
             noisy_img = function(img, sigma_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
@@ -1051,6 +1380,7 @@ def test_random_numpy(function, gray_prob):
     else:
         cv2.imwrite(os.path.join(save_dir, f"{function.__name__}.png"), combined_img)
         print(f"{function.__name__} is OK")
+
 
 def test_random_tensor(function, gray_noise):
     img = cv2.imread('tests/data/gt/people.png')
@@ -1070,6 +1400,17 @@ def test_random_tensor(function, gray_noise):
     if 'poisson' in function.__name__:
         for i in range(10):
             noisy_img = function(img_tensor, scale_range=(0, 1.0), gray_prob=0, clip=True, rounds=False)
+            # 将通道顺序从 BGR 转换为 RGB
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    elif 'impulse' in function.__name__:
+        for i in range(10):
+            noisy_img = function(img_tensor, prob_range=(0.01, 0.05), gray_prob=0, clip=True, rounds=False)
+            noisy_img = noisy_img[:, [2, 1, 0], :, :]
+            noisy_imgs.append(noisy_img)
+    elif 'speckle' in function.__name__:
+        for i in range(10):
+            noisy_img = function(img_tensor, sigma_range=(0.1, 0.5), gray_prob=0, clip=True, rounds=False)
             # 将通道顺序从 BGR 转换为 RGB
             noisy_img = noisy_img[:, [2, 1, 0], :, :]
             noisy_imgs.append(noisy_img)
@@ -1094,33 +1435,48 @@ def test_random_tensor(function, gray_noise):
 
 if __name__ == "__main__":
     # salt_and_papper noise Numpy array is OK
-    test_numpy_array(add_gaussian_noise, gray_noise=False)
-    test_numpy_array(add_gaussian_noise, gray_noise=True)
-    test_numpy_array(add_pepper_salt_noise, gray_noise=False)
-    test_numpy_array(add_pepper_salt_noise, gray_noise=True)
-    test_numpy_array(add_poisson_noise, gray_noise=False)
-    test_numpy_array(add_poisson_noise, gray_noise=True)
+    # test_numpy_array(add_gaussian_noise, gray_noise=False)
+    # test_numpy_array(add_gaussian_noise, gray_noise=True)
+    # test_numpy_array(add_pepper_salt_noise, gray_noise=False)
+    # test_numpy_array(add_pepper_salt_noise, gray_noise=True)
+    # test_numpy_array(add_poisson_noise, gray_noise=False)
+    # test_numpy_array(add_poisson_noise, gray_noise=True)
+    # test_numpy_array(add_impulse_noise, gray_noise=False)
+    # test_numpy_array(add_impulse_noise, gray_noise=True)
+    # test_numpy_array(add_speckle_noise, gray_noise=False)
+    # test_numpy_array(add_speckle_noise, gray_noise=True)
 
     # TODO: when we use tensor, ouput_img color is different from numpy array
-    test_tensor(add_gaussian_noise_pt, gray_noise=False)
-    test_tensor(add_gaussian_noise_pt, gray_noise=True)
-    test_tensor(add_poisson_noise_pt, gray_noise=False)
-    test_tensor(add_poisson_noise_pt, gray_noise=True)
-    test_tensor(add_pepper_salt_noise_pt, gray_noise=False)
-    test_tensor(add_pepper_salt_noise_pt, gray_noise=True)
-
+    # test_tensor(add_gaussian_noise_pt, gray_noise=False)
+    # test_tensor(add_gaussian_noise_pt, gray_noise=True)
+    # test_tensor(add_poisson_noise_pt, gray_noise=False)
+    # test_tensor(add_poisson_noise_pt, gray_noise=True)
+    # test_tensor(add_pepper_salt_noise_pt, gray_noise=False)
+    # test_tensor(add_pepper_salt_noise_pt, gray_noise=True)
+    # test_tensor(add_impulse_noise_pt, gray_noise=False)
+    # test_tensor(add_impulse_noise_pt, gray_noise=True)
+    # test_tensor(add_speckle_noise_pt, gray_noise=False)
+    # test_tensor(add_speckle_noise_pt, gray_noise=True)
 
     # Test Random generate noise
-    test_random_numpy(random_add_gaussian_noise, gray_prob=0)
-    test_random_numpy(random_add_gaussian_noise, gray_prob=1)
-    test_random_numpy(random_add_poisson_noise, gray_prob=0)
-    test_random_numpy(random_add_poisson_noise, gray_prob=1)
-    test_random_numpy(random_add_salt_and_pepper_noise, gray_prob=0)
-    test_random_numpy(random_add_salt_and_pepper_noise, gray_prob=1)
+    # test_random_numpy(random_add_gaussian_noise, gray_prob=0)
+    # test_random_numpy(random_add_gaussian_noise, gray_prob=1)
+    # test_random_numpy(random_add_poisson_noise, gray_prob=0)
+    # test_random_numpy(random_add_poisson_noise, gray_prob=1)
+    # test_random_numpy(random_add_salt_and_pepper_noise, gray_prob=0)
+    # test_random_numpy(random_add_salt_and_pepper_noise, gray_prob=1)
+    # test_random_numpy(random_add_impulse_noise, gray_prob=0)
+    # test_random_numpy(random_add_impulse_noise, gray_prob=1)
+    test_random_numpy(random_add_speckle_noise, gray_prob=0)
+    test_random_numpy(random_add_speckle_noise, gray_prob=1)
 
-    test_random_tensor(random_add_gaussian_noise_pt, gray_noise=0)
-    test_random_tensor(random_add_gaussian_noise_pt, gray_noise=1)
-    test_random_tensor(random_add_poisson_noise_pt, gray_noise=0)
-    test_random_tensor(random_add_poisson_noise_pt, gray_noise=1)
-    test_random_tensor(random_add_salt_and_pepper_noise_pt, gray_noise=0)
-    test_random_tensor(random_add_salt_and_pepper_noise_pt, gray_noise=1)
+    # test_random_tensor(random_add_gaussian_noise_pt, gray_noise=0)
+    # test_random_tensor(random_add_gaussian_noise_pt, gray_noise=1)
+    # test_random_tensor(random_add_poisson_noise_pt, gray_noise=0)
+    # test_random_tensor(random_add_poisson_noise_pt, gray_noise=1)
+    # test_random_tensor(random_add_salt_and_pepper_noise_pt, gray_noise=0)
+    # test_random_tensor(random_add_salt_and_pepper_noise_pt, gray_noise=1)
+    # test_random_tensor(random_add_impulse_noise_pt, gray_noise=0)
+    # test_random_tensor(random_add_impulse_noise_pt, gray_noise=1)
+    test_random_tensor(random_add_speckle_noise_pt, gray_noise=0)
+    test_random_tensor(random_add_speckle_noise_pt, gray_noise=1)

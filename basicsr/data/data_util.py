@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 import os
-import unittest
+import operator
 from os import path as osp
 from torch.nn import functional as F
 
@@ -321,45 +321,32 @@ def duf_downsample(x, kernel_size=13, scale=4):
 #                             For Film degradation                             #
 # ---------------------------------------------------------------------------- #
 
-
-def get_file_list_new(path):
-    """Get file list from path.
-
-    Args:
-        path (str): Path to the file list.
-
-    Returns:
-        list[str]: File list.
+def getfilelist_with_length(file_path):
     """
-    file_paths = []
-    for dirpath, dirnames, filenames in os.walk(path):
-        for filename in filenames:
-            file_paths.append(os.path.join(dirpath, filename))
-            # 无序更能保证模拟电影退化的随机性
-            # file_paths.sort()
-    return file_paths
+    获取给定路径下所有文件的列表, 并附带每个文件所在文件夹中的文件数量。
 
+    参数:
+    file_path (str): 需要搜索的文件路径。
 
-def get_file_list_old(path):
-    """Get file list from path.
-
-    Args:
-        path (str): Path to the file list.
-
-    Returns:
-        list[str]: File list.
+    返回:
+    all_file (list): 包含所有文件信息的列表, 每个元素是一个元组, 第一个元素是文件路径, 第二个元素是该文件所在文件夹中的文件数量。
     """
-    file_paths = []
-    for dirpath, dirnames, filenames in os.walk(path):
-        for filename in filenames:
-            t = "%s/%s" % (dirpath, filename)
-            file_paths.append(t)
-            # file_paths.sort()
-    return file_paths
+
+    all_file = []
+    for dir, folder, file in os.walk(file_path):
+        for i in file:
+            t = "%s/%s" % (dir, i)
+            all_file.append((t, len(os.listdir(dir))))
+
+    # 按照文件路径对列表进行排序
+    all_file.sort(key=operator.itemgetter(0))
+
+    return all_file
+
 
 def test_function(function):
     test_path = 'datasets/noise_data'
-    file_paths = function(test_path)
+    file_paths = function(test_path)[index][0]
 
     # 打印文件路径的总长度
     print(f'Total number of files: {len(file_paths)}')
@@ -371,6 +358,6 @@ def test_function(function):
 
     print(f'File paths have been written to {function.__name__}.txt')
 
+
 if __name__ == "__main__":
-    test_function(get_file_list_old)
-    test_function(get_file_list_new)
+    test_function(getfilelist_with_length)
