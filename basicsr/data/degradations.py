@@ -893,7 +893,7 @@ def generate_impulse_noise(img, p=0.05, gray_noise=False):
     """
     h, w, c = img.shape
     # Generate noise
-    noise = np.random.choice([0, 1, 0.5], size=(h, w, 1 if gray_noise else c), p=[p/2, p/2, 1-p])
+    noise = np.random.choice([0, 1, 0.5], size=(h, w, 1 if gray_noise else c), p=[p / 2, p / 2, 1 - p])
     if gray_noise:
         noise = np.repeat(noise, c, axis=2)
     return noise.astype(np.float32)
@@ -943,13 +943,15 @@ def generate_impulse_noise_pt(img, p=0.05, gray_noise=0):
     # Create noise pattern
     if gray_noise:
         noise_pattern = torch.rand((b, 1, h, w), dtype=torch.float32, device=device)
-        noise = torch.where(noise_pattern < p/2, torch.zeros_like(noise_pattern),
-                            torch.where(noise_pattern < p, torch.ones_like(noise_pattern), torch.full_like(noise_pattern, 0.5)))
+        noise = torch.where(
+            noise_pattern < p / 2, torch.zeros_like(noise_pattern),
+            torch.where(noise_pattern < p, torch.ones_like(noise_pattern), torch.full_like(noise_pattern, 0.5)))
         noise = noise.repeat(1, c, 1, 1)  # Repeat noise across channels
     else:
         noise_pattern = torch.rand((b, c, h, w), dtype=torch.float32, device=device)
-        noise = torch.where(noise_pattern < p/2, torch.zeros_like(noise_pattern),
-                            torch.where(noise_pattern < p, torch.ones_like(noise_pattern), torch.full_like(noise_pattern, 0.5)))
+        noise = torch.where(
+            noise_pattern < p / 2, torch.zeros_like(noise_pattern),
+            torch.where(noise_pattern < p, torch.ones_like(noise_pattern), torch.full_like(noise_pattern, 0.5)))
 
     return noise
 
@@ -1129,6 +1131,7 @@ def random_generate_speckle_noise(img, sigma_range=(0.01, 0.1), gray_prob=0):
     gray_noise = np.random.uniform() < gray_prob
     return generate_speckle_noise(img, sigma, gray_noise)
 
+
 def random_add_speckle_noise(img, sigma_range=(0.01, 0.1), gray_prob=0, clip=True, rounds=False):
     """
     Add random speckle noise to an image.
@@ -1153,6 +1156,7 @@ def random_add_speckle_noise(img, sigma_range=(0.01, 0.1), gray_prob=0, clip=Tru
         out = (out * 255.0).round() / 255.
     return out
 
+
 def random_generate_speckle_noise_pt(img, sigma_range=(0.01, 0.1), gray_prob=0):
     """
     Generate random speckle noise (PyTorch version).
@@ -1168,6 +1172,7 @@ def random_generate_speckle_noise_pt(img, sigma_range=(0.01, 0.1), gray_prob=0):
     sigma = torch.rand(1, dtype=img.dtype, device=img.device) * (sigma_range[1] - sigma_range[0]) + sigma_range[0]
     gray_noise = (torch.rand(1, dtype=img.dtype, device=img.device) < gray_prob).float()
     return generate_speckle_noise_pt(img, sigma.item(), gray_noise.item())
+
 
 def random_add_speckle_noise_pt(img, sigma_range=(0.01, 0.1), gray_prob=0, clip=True, rounds=False):
     """
@@ -1192,6 +1197,7 @@ def random_add_speckle_noise_pt(img, sigma_range=(0.01, 0.1), gray_prob=0, clip=
     elif rounds:
         out = (out * 255.0).round() / 255.
     return out
+
 
 # ------------------------------------------------------------------------ #
 # --------------------------- JPEG compression --------------------------- #
@@ -1232,6 +1238,7 @@ def random_add_jpg_compression(img, quality_range=(90, 100)):
     """
     quality = np.random.uniform(quality_range[0], quality_range[1])
     return add_jpg_compression(img, quality)
+
 
 # ---------------------------------------------------------------------------- #
 #                                 Test Function                                #
